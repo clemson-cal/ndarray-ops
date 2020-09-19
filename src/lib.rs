@@ -233,6 +233,32 @@ pub fn extend_from_neighbor_arrays_2d<T, P>(a: &[[ArrayBase<P, Ix2>; 3]; 3], gli
 
 
 
+/**
+ * Extends 3 by 3 fixed-length array types, [[T; 3]; 3], with a functor map.
+ * This trait is defined here because it composes nicely with the
+ * `extend_from_neighbor_arrays_2d` function.
+ */
+pub trait MapArray3by3
+{
+    type Elem;
+    fn map<F: Fn(&Self::Elem) -> U, U>(self, f: F) -> [[U; 3]; 3];
+}
+
+impl<T> MapArray3by3 for [[T; 3]; 3]
+{
+    type Elem = T;
+    fn map<F, U>(self, f: F) -> [[U; 3]; 3] where F: Fn(&Self::Elem) -> U {
+        [
+            [f(&self[0][0]), f(&self[0][1]), f(&self[0][2])],
+            [f(&self[1][0]), f(&self[1][1]), f(&self[1][2])],
+            [f(&self[2][0]), f(&self[2][1]), f(&self[2][2])],
+        ]
+    }
+}
+
+
+
+
 // ============================================================================
 #[cfg(test)]
 mod tests
