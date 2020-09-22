@@ -144,8 +144,7 @@ pub fn adjacent_diff<T, U, P, D>(x: &ArrayBase<P, D>, axis: Axis) -> Array<U, D>
         T: Copy,
         P: RawData<Elem=T> + Data
 {
-    let ni = a.dim().0;
-    let nj = a.dim().1;
+    let (ni, nj) = a.dim();
     let extended_shape = (ni + 2 * ng, nj + 2 * ng);
 
     Array::from_shape_fn(extended_shape, |(mut i, mut j)| -> T
@@ -170,8 +169,51 @@ pub fn adjacent_diff<T, U, P, D>(x: &ArrayBase<P, D>, axis: Axis) -> Array<U, D>
 
 
 /**
- * Return a 2d array which is extended on both axes by a given number of 'guard'
- * zones on each edge. The extension is done to the array at the middle of a 3x3
+ * Return a 2d array which is extended by a given number of 'guard' zones on
+ * each edge, using the default value for the array type T, which must be Default.
+ *
+ * * `a`   - an ndarray
+ * * `gli` - number of guard zones to add to the west edge of the array
+ * * `gri` - number of guard zones to add to the east edge of the array
+ * * `glj` - number of guard zones to add to the south edge of the array
+ * * `grj` - number of guard zones to add to the north edge of the array
+ */
+pub fn extend_default_2d<T:, P>(a: ArrayBase<P, Ix2>, gli: usize, gri: usize, glj: usize, grj: usize) -> Array2<T>
+    where
+        T: Copy + Default,
+        P: RawData<Elem=T> + Data
+{
+    if gli == 0 && gri == 0 && glj == 0 && grj == 0 {
+        return a.to_owned();
+    }
+
+    let (ni, nj) = a.dim();
+    let extended_shape = (ni + gli + gri, nj + glj + grj);
+
+    Array::from_shape_fn(extended_shape, |(i, j)| -> T
+    {
+        if i < gli {
+            return T::default();
+        } else if i >= ni + gli {
+            return T::default();
+        }
+        if j < glj {
+            return T::default();
+        } else if j >= nj + glj {
+            return T::default();
+        }
+        unsafe {
+            *a.uget([i - gli, j - glj])
+        }
+    })
+}
+
+
+
+
+/**
+ * Return a 2d array which is extended by a given number of 'guard' zones on
+ * each edge. The extension is done to the array at the middle of a 3x3
  * fixed-length array of nd-arrays. The surrounding 8 nd-arrays can have
  * distinct shapes, but must have the same length along any shared edges. In
  * other words, the array at (1, 2), lying due north of the array to be
@@ -180,8 +222,8 @@ pub fn adjacent_diff<T, U, P, D>(x: &ArrayBase<P, D>, axis: Axis) -> Array<U, D>
  * guard zones grj on the north edge (assuming you have j increasing from bottom
  * to top in your head).
  *
- * * `a`   - 3x3 fixed-length array of nd-arrays, the middle (1, 1) of which is to
- *           be extended
+ * * `a`   - 3x3 fixed-length array of nd-arrays, the middle (1, 1) of which is
+ *   to be extended
  * * `gli` - number of guard zones to add to the west edge of the array
  * * `gri` - number of guard zones to add to the east edge of the array
  * * `glj` - number of guard zones to add to the south edge of the array
@@ -204,8 +246,7 @@ pub fn extend_from_neighbor_arrays_2d<T, P>(a: &[[ArrayBase<P, Ix2>; 3]; 3], gli
             panic!();
         }
     }
-    let ni = a[1][1].dim().0;
-    let nj = a[1][1].dim().1;
+    let (ni, nj) = a[1][1].dim();
     let extended_shape = (ni + gli + gri, nj + glj + grj);
 
     Array::from_shape_fn(extended_shape, |(i, j)| -> T
@@ -216,13 +257,13 @@ pub fn extend_from_neighbor_arrays_2d<T, P>(a: &[[ArrayBase<P, Ix2>; 3]; 3], gli
             0 => i + a[0][bj].dim().0 - gli,
             1 => i - gli,
             2 => i - a[1][bj].dim().0 - gli,
-            _ => panic!(),
+            _ => unreachable!(),
         };
         let j0 = match bj {
             0 => j + a[bi][0].dim().1 - glj,
             1 => j - glj,
             2 => j - a[bi][1].dim().1 - glj,
-            _ => panic!(),
+            _ => unreachable!(),
         };
         unsafe {
             *a[bi][bj].uget([i0, j0])
@@ -266,6 +307,14 @@ mod tests
     use ndarray::Array2;
 
     #[test]
+    fn extend_default_works()
+    {
+        let x = Array2::<f64>::zeros((10, 10)).to_shared();
+        assert_eq!(crate::extend_default_2d(x.clone(), 2, 2, 2, 2).dim(), (14, 14));
+        assert_eq!(crate::extend_default_2d(x.clone(), 0, 1, 2, 3).dim(), (11, 15));
+    }
+
+    #[test]
     fn extend_from_neighbor_arrays_works_with_uniformly_shaped_arrays()
     {
         let x = Array2::<f64>::zeros((10, 10)).to_shared();
@@ -294,6 +343,21 @@ mod tests
         ];
         assert_eq!(crate::extend_from_neighbor_arrays_2d(&a, 1, 1, 1, 1).dim(), (12, 12));
         assert_eq!(crate::extend_from_neighbor_arrays_2d(&a, 1, 2, 1, 2).dim(), (13, 13));
+    }
+
+    #[test]
+    fn extend_from_neighbor_arrays_works_with_non_zero_length_arrays()
+    {
+        let w = Array2::<f64>::zeros(( 2, 10)).to_shared();
+        let x = Array2::<f64>::zeros((10, 10)).to_shared();
+        let y = Array2::<f64>::zeros(( 0,  0)).to_shared();
+
+        let a = [
+            [y.clone(), w.clone(), y.clone()],
+            [y.clone(), x.clone(), y.clone()],
+            [y.clone(), w.clone(), y.clone()],
+        ];
+        assert_eq!(crate::extend_from_neighbor_arrays_2d(&a, 2, 2, 0, 0).dim(), (14, 10));
     }
 
     #[test]
